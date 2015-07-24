@@ -2,6 +2,8 @@ import sqlalchemy
 from sqlalchemy.engine.url import make_url
 from six import text_type
 
+from sql.completer import completer
+
 
 class Connection(object):
     current = None
@@ -79,6 +81,8 @@ class VerticaConnection(Connection):
         Connection.current = self
         self.dialect = 'vertica'
 
+        self.reset_completions()
+
     def execute(self, statement, user_namespace):
         from psycopg2 import ProgrammingError
         from psycopg2.extensions import adapt
@@ -97,6 +101,41 @@ class VerticaConnection(Connection):
 
         self.cursor.execute(statement, copied_namespace)
         return VerticaResultProxy(self.cursor)
+
+    def reset_completions(self):
+        self.cursor.execute('show search_path')
+        result = self.cursor.fetchone()
+        search_path = [
+            p.strip() for p in result[1].split(',')
+        ]
+        for i, entry in enumerate(search_path):
+            if entry == "\"$user\"":
+                search_path[i] = self.internal_connection.options.get('user')
+        completer.set_search_path(search_path)
+
+        self.cursor.execute('SELECT schema_name FROM v_catalog.schemata')
+        result = self.cursor.fetchall()
+        completer.extend_schemata([r[0] for r in result])
+
+        self.cursor.execute('SELECT table_schema, table_name FROM v_catalog.tables')
+        completer.extend_relations(self.cursor.fetchall(), kind='tables')
+
+        self.cursor.execute('SELECT table_schema, table_name, column_name FROM v_catalog.columns')
+        completer.extend_columns(self.cursor.fetchall(), kind='tables')
+
+        self.cursor.execute('SELECT table_schema, table_name FROM v_catalog.views')
+        completer.extend_relations(self.cursor.fetchall(), kind='views')
+
+        self.cursor.execute('SELECT table_schema, table_name, column_name FROM v_catalog.view_columns')
+        completer.extend_columns(self.cursor.fetchall(), kind='views')
+
+        self.cursor.execute('SELECT projection_schema, projection_name FROM v_catalog.projections')
+        completer.extend_relations(self.cursor.fetchall(), kind='views')
+
+        self.cursor.execute(
+            'SELECT p.projection_schema, p.projection_name, pc.projection_column_name FROM v_catalog.projection_columns pc '
+            'JOIN v_catalog.projections p ON pc.projection_id = p.projection_id')
+        completer.extend_columns(self.cursor.fetchall(), kind='views')
 
 
 class VerticaResultProxy(object):

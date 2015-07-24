@@ -10,6 +10,7 @@ except ImportError:
 
 from sqlalchemy.exc import ProgrammingError, OperationalError
 
+import sql.completer
 import sql.connection
 import sql.parse
 import sql.run
@@ -40,6 +41,7 @@ class SqlMagic(Magics, Configurable):
 
         # Add ourself to the list of module configurable via %config
         self.shell.configurables.append(self)
+        self.shell.set_hook('complete_command', sql.completer.sql_completer, re_key=r'.*?(?:select|SELECT)')
 
     @needs_local_scope
     @line_magic('sql')
