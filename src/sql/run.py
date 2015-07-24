@@ -272,19 +272,15 @@ def run(conn, sql, config, user_namespace):
         for statement in sqlparse.split(sql):
             if sql.strip().split()[0].lower() == 'begin':
                 raise Exception("ipython_sql does not support transactions")
-            txt = sqlalchemy.sql.text(statement)
-            result = conn.session.execute(txt, user_namespace)
-            try:
-                conn.session.execute('commit')
-            except sqlalchemy.exc.OperationalError: 
-                pass # not all engines can commit
-            if result and config.feedback:
-                print(interpret_rowcount(result.rowcount))
+            result = conn.execute(statement, user_namespace)
         resultset = ResultSet(result, statement, config)
         if config.autopandas:
-            return resultset.DataFrame()
+            final_value = resultset.DataFrame()
         else:
-            return resultset
+            final_value = resultset
+        if result and config.feedback:
+            print(interpret_rowcount(result.rowcount))
+        return final_value
         #returning only last result, intentionally
     else:
         return 'Connected: %s' % conn.name

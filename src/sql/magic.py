@@ -28,7 +28,7 @@ class SqlMagic(Magics, Configurable):
     autopandas = Bool(False, config=True, help="Return Pandas DataFrames instead of regular result sets")
     column_local_vars = Bool(False, config=True, help="Return data into local variables from column names")
     feedback = Bool(True, config=True, help="Print number of rows affected by DML")
-    dsn_filename = Unicode('odbc.ini', config=True, help="Path to DSN file. "
+    dsn_filename = Unicode('~/.odbc.ini', config=True, help="Path to DSN file. "
                            "When the first argument is of the form [section], "
                            "a sqlalchemy connection string is formed from the "
                            "matching section in the DSN file.")
