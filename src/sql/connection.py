@@ -77,6 +77,7 @@ class VerticaConnection(Connection):
         self.connections[self.name] = self
         self.connections[connect_str] = self
         Connection.current = self
+        self.dialect = 'vertica'
 
     def execute(self, statement, user_namespace):
         from psycopg2 import ProgrammingError

@@ -6,6 +6,7 @@ import six
 import codecs
 import os.path
 import re
+import subprocess
 import sqlalchemy
 import sqlparse
 import prettytable
@@ -146,7 +147,7 @@ class ResultSet(list, ColumnGuesserMixin):
     def DataFrame(self):
         "Returns a Pandas DataFrame instance built from the result set."
         import pandas as pd
-        frame = pd.DataFrame(self, columns=(self and self.keys) or [])
+        frame = pd.DataFrame(list(self), columns=(self and self.keys) or [])
         return frame
     def pie(self, key_word_sep=" ", title=None, **kwargs):
         """Generates a pylab pie chart from the result set.
@@ -259,6 +260,51 @@ class ResultSet(list, ColumnGuesserMixin):
             return outfile.getvalue()
 
 
+class QueryPlanResultSet(list):
+
+    def __init__(self, sqlaproxy, sql, config):
+        self.result = sqlaproxy.fetchall()
+
+    def _repr_html_(self):
+        return '<pre>' + '\n'.join([r[0] for r in self.result]) + '</pre>'
+
+
+class VerticaQueryPlanResultSet(QueryPlanResultSet):
+    
+    def _repr_html_(self):
+        lines = ['<pre>']
+        graphviz_data = None
+        for row in self.result:
+            text = row[0]
+            if text.startswith('----'):
+                continue
+
+            if graphviz_data is not None:
+                graphviz_data.append(text)
+            else:
+                if text.strip() == 'PLAN: BASE QUERY PLAN (GraphViz Format)':
+                    graphviz_data = []
+                    continue
+                lines.append(text)
+        lines.append('</pre>')
+
+        dot = subprocess.Popen(['dot', '-Tsvg'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdoutdata, stderrdata = dot.communicate('\n'.join(graphviz_data).encode('utf-8'))
+        status = dot.wait()
+        if status == 0:
+            in_svg = False
+            for line in stdoutdata.split('\n'):
+                if line.startswith('<svg'):
+                    in_svg = True
+
+                if in_svg:
+                    lines.append(line)
+        else:
+            lines.append('<div>Unable to process graphviz data:</div><pre>{}</pre>'.format(stderrdata))
+
+        return '\n'.join(lines)
+
+
 def interpret_rowcount(rowcount):
     if rowcount < 0:
         result = 'Done.'
@@ -270,17 +316,24 @@ def interpret_rowcount(rowcount):
 def run(conn, sql, config, user_namespace):
     if sql.strip():
         for statement in sqlparse.split(sql):
-            if sql.strip().split()[0].lower() == 'begin':
+            first_word = sql.strip().split()[0].lower()
+            if first_word == 'begin':
                 raise Exception("ipython_sql does not support transactions")
             result = conn.execute(statement, user_namespace)
-        resultset = ResultSet(result, statement, config)
-        if config.autopandas:
-            final_value = resultset.DataFrame()
-        else:
-            final_value = resultset
-        if result and config.feedback:
-            print(interpret_rowcount(result.rowcount))
-        return final_value
+            if result and config.feedback and first_word in ('insert', 'update', 'delete'):
+                print(interpret_rowcount(result.rowcount))
+
         #returning only last result, intentionally
+        if result.keys()[0] == 'QUERY PLAN':
+            if getattr(conn, 'dialect', None) == 'vertica':
+                resultset = VerticaQueryPlanResultSet(result, statement, config)
+            else:
+                resultset = QueryPlanResultSet(result, statement, config)
+        else:
+            resultset = ResultSet(result, statement, config)
+            if config.autopandas:
+                return resultset.DataFrame()
+
+        return resultset
     else:
         return 'Connected: %s' % conn.name
